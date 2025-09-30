@@ -71,7 +71,7 @@ public class StockServiceImpl implements StockService {
                 Response<List<Stock>> response = responseEntity.getBody();
 
                 if (response != null && response.isSuccess()) {
-                    logger.info("✅ Stocks updated successfully at {}", timeManager.getCurrentTime());
+                    logger.info("✅ {} stocks updated successfully at {}",response.getResponse().size(), timeManager.getCurrentTime());
                     stocks = response.getResponse();
                     return;
                 } else {
