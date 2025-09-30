@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
 import com.thirdeye3.webscrapper.dtos.Response;
@@ -24,7 +25,6 @@ public class StockServiceImpl implements StockService {
     private List<Stock> stocks = null;
 
     private final RestTemplate restTemplate = new RestTemplate();
-
     private final TimeManager timeManager;
 
     public StockServiceImpl(TimeManager timeManager) {
@@ -43,32 +43,60 @@ public class StockServiceImpl implements StockService {
     @Value("${webscrapper.api.key}")
     private String webscrapperApiKey;
 
+    @Value("${webscrapper.retry.max-attempts}")
+    private int maxRetries;
+
+    @Value("${webscrapper.retry.initial-backoff}")
+    private long initialBackoffMs;
+    
     @Override
     public void updateStocks() {
         String url = baseUrl + "/sm/stocks/webscrapper/" + uniqueId + "/" + uniqueCode;
-
         HttpHeaders headers = new HttpHeaders();
         headers.set("webscrapper-api-key", webscrapperApiKey);
-
         HttpEntity<Void> entity = new HttpEntity<>(headers);
 
-        ResponseEntity<Response<List<Stock>>> responseEntity =
-                restTemplate.exchange(url, HttpMethod.GET, entity,
-                        new ParameterizedTypeReference<Response<List<Stock>>>() {});
+        int attempt = 0;
+        long backoff = initialBackoffMs;
 
-        Response<List<Stock>> response = responseEntity.getBody();
+        while (attempt < maxRetries) {
+            attempt++;
+            try {
+                logger.info("🔄 Attempt {}/{} to update stocks from {}", attempt, maxRetries, url);
 
-        if (response != null && response.isSuccess()) {
-            logger.info("✅ Stocks updated at {}", timeManager.getCurrentTime());
-            stocks = response.getResponse();
-        } else {
-            logger.error("❌ Error ({}): {} at {}",
-                    response != null ? response.getErrorCode() : "N/A",
-                    response != null ? response.getErrorMessage() : "No response body",
-                    timeManager.getCurrentTime());
-            throw new WebScrapperException("Stock update failed: " +
-                    (response != null ? response.getErrorMessage() : "No response body"));
+                ResponseEntity<Response<List<Stock>>> responseEntity =
+                        restTemplate.exchange(url, HttpMethod.GET, entity,
+                                new ParameterizedTypeReference<Response<List<Stock>>>() {});
+
+                Response<List<Stock>> response = responseEntity.getBody();
+
+                if (response != null && response.isSuccess()) {
+                    logger.info("✅ Stocks updated successfully at {}", timeManager.getCurrentTime());
+                    stocks = response.getResponse();
+                    return;
+                } else {
+                    logger.error("❌ Attempt {} failed with error: {}",
+                            attempt,
+                            response != null ? response.getErrorMessage() : "No response body");
+                }
+
+            } catch (RestClientException ex) {
+                logger.error("⚠️ Attempt {} failed due to exception: {}", attempt, ex.getMessage());
+            }
+
+            if (attempt < maxRetries) {
+                try {
+                    logger.info("⏸ Waiting {} ms before retrying...", backoff);
+                    Thread.sleep(backoff);
+                    backoff *= 2;
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new WebScrapperException("Retry interrupted");
+                }
+            }
         }
+
+        throw new WebScrapperException("Stock update failed after " + maxRetries + " attempts.");
     }
 
     @Override

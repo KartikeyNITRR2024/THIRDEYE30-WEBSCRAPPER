@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
 import com.thirdeye3.webscrapper.dtos.Response;
@@ -23,7 +24,7 @@ import com.thirdeye3.webscrapper.utils.TimeManager;
 
 @Service
 public class StockViewerImpl implements StockViewer {
-	
+    
     private static final Logger logger = LoggerFactory.getLogger(StockViewerImpl.class);
 
     private final RestTemplate restTemplate = new RestTemplate();
@@ -45,11 +46,17 @@ public class StockViewerImpl implements StockViewer {
     
     @Value("${webscrapper.api.key}")
     private String webscrapperApiKey;
-    
+
+    @Value("${webscrapper.retry.max-attempts}")
+    private int maxRetries;
+
+    @Value("${webscrapper.retry.initial-backoff}")
+    private long initialBackoffMs;
+
     @Override
     public void sendStocks(List<Stock> stocks) {
         WebscrapperRequest webscrapperRequest = new WebscrapperRequest();
-    	
+        
         if (uniqueCode.charAt(8) == '1') {
             webscrapperRequest.setStockList(stocks);
         } else if (uniqueCode.charAt(8) == '2') {
@@ -65,30 +72,55 @@ public class StockViewerImpl implements StockViewer {
 
         HttpEntity<WebscrapperRequest> entity = new HttpEntity<>(webscrapperRequest, headers);
 
-        ResponseEntity<Response<Boolean>> responseEntity =
-                restTemplate.exchange(url, HttpMethod.POST, entity,
-                        new ParameterizedTypeReference<Response<Boolean>>() {});
+        int attempt = 0;
+        long backoff = maxRetries;
 
-        Response<Boolean> response = responseEntity.getBody();
+        while (attempt < initialBackoffMs) {
+            attempt++;
+            try {
+                logger.info("🚀 Attempt {}/{} to send stocks to {}", attempt, initialBackoffMs, url);
 
-        if (response != null && response.isSuccess()) {
-            Boolean check = response.getResponse();
-            logger.info("✅ Stocks sent at {} and response to restart is {}", timeManager.getCurrentTime(), check);
-            if (Boolean.TRUE.equals(check)) {
+                ResponseEntity<Response<Boolean>> responseEntity =
+                        restTemplate.exchange(url, HttpMethod.POST, entity,
+                                new ParameterizedTypeReference<Response<Boolean>>() {});
+
+                Response<Boolean> response = responseEntity.getBody();
+
+                if (response != null && response.isSuccess()) {
+                    Boolean restart = response.getResponse();
+                    logger.info("✅ Stocks sent at {} — restart flag = {}", timeManager.getCurrentTime(), restart);
+                    if (Boolean.TRUE.equals(restart)) {
+                        try {
+                            initiatier.init();
+                            logger.info("♻️ Initiatier restarted successfully.");
+                        } catch (Exception e) {
+                            logger.error("❌ Failed to restart initiatier", e);
+                        }
+                    }
+                    return;
+                } else {
+                    logger.error("❌ Attempt {} failed — Error ({}): {}", 
+                            attempt,
+                            response != null ? response.getErrorCode() : "N/A",
+                            response != null ? response.getErrorMessage() : "No response body");
+                }
+
+            } catch (RestClientException ex) {
+                logger.error("⚠️ Attempt {} failed due to exception: {}", attempt, ex.getMessage());
+            }
+
+            if (attempt < initialBackoffMs) {
                 try {
-                    initiatier.init();
-                    logger.info("✅ Initiatier restarted.");
-                } catch (Exception e) {
-                    logger.error("❌ Failed to restart initiatier", e);
+                    logger.info("⏸ Waiting {} ms before retrying...", backoff);
+                    Thread.sleep(backoff);
+                    backoff *= 2;
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new WebScrapperException("Retry interrupted");
                 }
             }
-        } else {
-            logger.error("❌ Error ({}): {} at {}", 
-                    response != null ? response.getErrorCode() : "N/A", 
-                    response != null ? response.getErrorMessage() : "No response body", 
-                    timeManager.getCurrentTime());
-            throw new WebScrapperException("Sending stock failed: " +
-                    (response != null ? response.getErrorMessage() : "No response body"));
         }
+
+        throw new WebScrapperException("Failed to send stocks after " + initialBackoffMs + " attempts.");
     }
 }
