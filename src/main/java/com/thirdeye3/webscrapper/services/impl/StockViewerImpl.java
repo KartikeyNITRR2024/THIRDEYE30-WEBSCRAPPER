@@ -75,10 +75,10 @@ public class StockViewerImpl implements StockViewer {
         int attempt = 0;
         long backoff = maxRetries;
 
-        while (attempt < initialBackoffMs) {
+        while (attempt < maxRetries) {
             attempt++;
             try {
-                logger.info("🚀 Attempt {}/{} to send stocks to {}", attempt, initialBackoffMs, url);
+                logger.info("🚀 Attempt {}/{} to send stocks to {}", attempt, maxRetries, url);
 
                 ResponseEntity<Response<Boolean>> responseEntity =
                         restTemplate.exchange(url, HttpMethod.POST, entity,
@@ -109,7 +109,7 @@ public class StockViewerImpl implements StockViewer {
                 logger.error("⚠️ Attempt {} failed due to exception: {}", attempt, ex.getMessage());
             }
 
-            if (attempt < initialBackoffMs) {
+            if (attempt < maxRetries) {
                 try {
                     logger.info("⏸ Waiting {} ms before retrying...", backoff);
                     Thread.sleep(backoff);
@@ -121,6 +121,6 @@ public class StockViewerImpl implements StockViewer {
             }
         }
 
-        throw new WebScrapperException("Failed to send stocks after " + initialBackoffMs + " attempts.");
+        throw new WebScrapperException("Failed to send stocks after " + maxRetries + " attempts.");
     }
 }
