@@ -56,6 +56,7 @@ public class StockViewerImpl implements StockViewer {
     @Override
     public void sendStocks(List<Stock> stocks) {
         WebscrapperRequest webscrapperRequest = new WebscrapperRequest();
+        logger.info("🚀 Trying to send {} stocks.");
         
         if (uniqueCode.charAt(8) == '1') {
             webscrapperRequest.setStockList(stocks);
