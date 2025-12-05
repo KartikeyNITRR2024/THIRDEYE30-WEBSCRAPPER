@@ -59,7 +59,7 @@ public class PropertyServiceImpl implements PropertyService {
         while (attempt < maxRetries) {
             attempt++;
             try {
-                logger.info("🌐 Attempt {}/{} to update properties from {}", attempt, maxRetries, url);
+                logger.info("🌐 Attempt {}/{} to update properties", attempt, maxRetries);
 
                 ResponseEntity<Response<Map<String, Object>>> responseEntity =
                         restTemplate.exchange(url, HttpMethod.GET, entity,

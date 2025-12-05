@@ -62,7 +62,7 @@ public class StockServiceImpl implements StockService {
         while (attempt < maxRetries) {
             attempt++;
             try {
-                logger.info("🔄 Attempt {}/{} to update stocks from {}", attempt, maxRetries, url);
+                logger.info("🔄 Attempt {}/{} to update stocks", attempt, maxRetries);
 
                 ResponseEntity<Response<List<Stock>>> responseEntity =
                         restTemplate.exchange(url, HttpMethod.GET, entity,

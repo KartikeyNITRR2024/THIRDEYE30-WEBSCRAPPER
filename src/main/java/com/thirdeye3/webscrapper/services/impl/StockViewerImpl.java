@@ -57,7 +57,6 @@ public class StockViewerImpl implements StockViewer {
     public void sendStocks(List<Stock> stocks) {
         WebscrapperRequest webscrapperRequest = new WebscrapperRequest();
         logger.info("🚀 Trying to send {} stocks.", stocks.size());
-        System.out.println(stocks);
         
         if (uniqueCode.charAt(8) == '1') {
             webscrapperRequest.setStockList(stocks);
@@ -80,7 +79,7 @@ public class StockViewerImpl implements StockViewer {
         while (attempt < maxRetries) {
             attempt++;
             try {
-                logger.info("🚀 Attempt {}/{} to send stocks to {}", attempt, maxRetries, url);
+                logger.info("🚀 Attempt {}/{} to send stocks", attempt, maxRetries);
 
                 ResponseEntity<Response<Boolean>> responseEntity =
                         restTemplate.exchange(url, HttpMethod.POST, entity,

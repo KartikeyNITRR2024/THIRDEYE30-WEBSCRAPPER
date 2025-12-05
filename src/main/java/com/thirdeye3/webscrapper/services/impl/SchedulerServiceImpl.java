@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
 public class SchedulerServiceImpl implements SchedulerService {
@@ -59,52 +60,78 @@ public class SchedulerServiceImpl implements SchedulerService {
     
     @Value("${webscrapper.baseUrlForCheckStatus}")
     private String baseUrl;
+    
+    @Value("${webscrapper.thread.MaximumLifeCycle}")
+    private Integer threadMaximumLifeCycle;
+    
+    private final AtomicBoolean running = new AtomicBoolean(false);
 
     @Override
     @Scheduled(cron = "${webscrapper.scheduler.cronToWebScrap}", zone = "${webscrapper.timezone}")
     public void runToWebscrap() {
-    	if(timeManager.isMarketOpen())
+    	
+    	if (!running.compareAndSet(false, true)) {
+            logger.warn("Previous scheduler still running — skipping this cycle.");
+            return;
+        }
+    	
+    	try 
     	{
-	        try {
-	            tempStockList = stockService.getStocks();
-	
-	            long start = System.currentTimeMillis();
-	            logger.info("✅ Scheduler started at {}", timeManager.getCurrentTime());
-	
-	            List<CompletableFuture<Void>> futures = new ArrayList<>();
-	            for (Stock stock : tempStockList) {
-	                futures.add(asyncStockService.fetchStockAsync(stock));
-	            }
-	            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-	
-	            long end = System.currentTimeMillis();
-	            logger.info("✅ Scheduler finished at {}. Total time = {} ms",
-	                    timeManager.getCurrentTime(), (end - start));
-	        } catch (Exception e) {
-	            logger.error("❌ Scheduler failed at {}: {}", timeManager.getCurrentTime(), e.getMessage());
-	            throw new WebScrapperException("Scheduler runToWebscrap failed: " + e.getMessage());
-	        }
+	    	if(timeManager.isMarketOpen())
+	    	{
+		        try {
+		            tempStockList = stockService.getStocks();
+		
+		            long start = System.currentTimeMillis();
+		            logger.info("✅ Scheduler started at {}", timeManager.getCurrentTime());
+		
+		            List<CompletableFuture<Void>> futures = new ArrayList<>();
+		            for (Stock stock : tempStockList) {
+		                futures.add(asyncStockService.fetchStockAsync(stock));
+		            }
+		            
+		            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+	                .get(threadMaximumLifeCycle, TimeUnit.SECONDS);
+		
+		            long end = System.currentTimeMillis();
+		            logger.info("✅ Scheduler finished at {}. Total time = {} ms",
+		                    timeManager.getCurrentTime(), (end - start));
+		        } catch (Exception e) {
+		            logger.error("❌ Scheduler failed at {}: {}", timeManager.getCurrentTime(), e.getMessage());
+		            throw new WebScrapperException("Scheduler runToWebscrap failed: " + e.getMessage());
+		        }
+	    	}
+	    	else
+	    	{
+	    		logger.info("Market is currently close");
+	    	}
     	}
-    	else
-    	{
-    		logger.info("Market is currently close");
-    	}
+    	finally {
+            running.set(false);
+        }
     }
 
     @Override
     @Scheduled(cron = "${webscrapper.scheduler.cronToSendData}", zone = "${webscrapper.timezone}")
     public void runToSendData() {
+
         try {
-        	if(tempStockList != null)
-        	{
-        		logger.info("📤 Sending data at {}", timeManager.getCurrentTime());
-        		stockViewerImpl.sendStocks(tempStockList);
-        	}
+            if (tempStockList != null && !tempStockList.isEmpty()) {
+
+                logger.info("📤 Sending data at {}", timeManager.getCurrentTime());
+                List<Stock> filteredList = tempStockList.stream()
+                        .filter(s -> s.getPrice() != null)
+                        .toList();
+                logger.info("➡️ {} valid stocks will be sent ({} removed due to null price)",
+                        filteredList.size(),
+                        tempStockList.size() - filteredList.size());
+                stockViewerImpl.sendStocks(filteredList);
+            }
         } catch (Exception e) {
             logger.error("❌ Failed to send data at {}: {}", timeManager.getCurrentTime(), e.getMessage());
-            throw new WebScrapperException("Scheduler runToSendData failed: " + e.getMessage());
         }
     }
+
 
     @Override
     @Scheduled(cron = "${webscrapper.scheduler.cronToRefreshData}", zone = "${webscrapper.timezone}")
