@@ -76,12 +76,10 @@ public class SchedulerServiceImpl implements SchedulerService {
 
         try {
             if (timeManager.isMarketOpen()) {
-
+                long start = System.currentTimeMillis();
+                logger.info("Scheduler started at {}", timeManager.getCurrentTime());
                 try {
                     tempStockList = stockService.getStocks();
-
-                    long start = System.currentTimeMillis();
-                    logger.info("Scheduler started at {}", timeManager.getCurrentTime());
 
                     List<CompletableFuture<Void>> futures = new ArrayList<>();
                     for (Stock stock : tempStockList) {
@@ -91,13 +89,12 @@ public class SchedulerServiceImpl implements SchedulerService {
                     CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
                             .get(threadMaximumLifeCycle, TimeUnit.SECONDS);
 
-                    long end = System.currentTimeMillis();
-                    logger.info("Scheduler finished at {}. Total time = {} ms",
-                            timeManager.getCurrentTime(), (end - start));
-
                 } catch (Exception e) {
                     logger.error("Scheduler error at {}: {}", timeManager.getCurrentTime(), e.toString());
                 }
+                long end = System.currentTimeMillis();
+                logger.info("Scheduler finished at {}. Total time = {} ms",
+                        timeManager.getCurrentTime(), (end - start));
 
             } else {
                 logger.info("Market is currently close");
