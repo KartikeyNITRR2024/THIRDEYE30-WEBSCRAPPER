@@ -1,5 +1,6 @@
 package com.thirdeye3.webscrapper.services.impl;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import org.slf4j.Logger;
@@ -22,7 +23,7 @@ public class StockServiceImpl implements StockService {
 
     private static final Logger logger = LoggerFactory.getLogger(StockServiceImpl.class);
 
-    private List<Stock> stocks = null;
+    private List<List<Stock>> stockBatches = null;
 
     private final RestTemplate restTemplate = new RestTemplate();
     private final TimeManager timeManager;
@@ -48,12 +49,17 @@ public class StockServiceImpl implements StockService {
 
     @Value("${webscrapper.retry.initial-backoff}")
     private long initialBackoffMs;
-    
+
+    @Value("${webscrapper.numberofcycle.perminute}")
+    private Integer noOfCyclePerMinute;
+
     @Override
     public void updateStocks() {
+
         String url = baseUrl + "/sm/stocks/webscrapper/" + uniqueId + "/" + uniqueCode;
         HttpHeaders headers = new HttpHeaders();
         headers.set("webscrapper-api-key", webscrapperApiKey);
+
         HttpEntity<Void> entity = new HttpEntity<>(headers);
 
         int attempt = 0;
@@ -71,12 +77,17 @@ public class StockServiceImpl implements StockService {
                 Response<List<Stock>> response = responseEntity.getBody();
 
                 if (response != null && response.isSuccess()) {
-                    logger.info("✅ {} stocks updated successfully at {}",response.getResponse().size(), timeManager.getCurrentTime());
-                    stocks = response.getResponse();
+
+                    List<Stock> fullStockList = response.getResponse();
+                    logger.info("✅ {} stocks fetched successfully at {}", fullStockList.size(), timeManager.getCurrentTime());
+
+                    stockBatches = divideIntoBatches(fullStockList, noOfCyclePerMinute);
+
+                    logger.info("📦 Stocks divided into {} batches", stockBatches.size());
+
                     return;
                 } else {
-                    logger.error("❌ Attempt {} failed with error: {}",
-                            attempt,
+                    logger.error("❌ Attempt {} failed with error: {}", attempt,
                             response != null ? response.getErrorMessage() : "No response body");
                 }
 
@@ -99,11 +110,63 @@ public class StockServiceImpl implements StockService {
         throw new WebScrapperException("Stock update failed after " + maxRetries + " attempts.");
     }
 
+    private List<List<Stock>> divideIntoBatches(List<Stock> stocks, int totalBatches) {
+
+        List<List<Stock>> batches = new ArrayList<>();
+
+        int totalStocks = stocks.size();
+        int baseSize = totalStocks / totalBatches;     
+        int remainder = totalStocks % totalBatches;
+
+        int index = 0;
+
+        for (int i = 0; i < totalBatches; i++) {
+
+            int currentBatchSize = baseSize + (i < remainder ? 1 : 0);
+
+            int endIndex = Math.min(index + currentBatchSize, totalStocks);
+
+            List<Stock> batch = new ArrayList<>(stocks.subList(index, endIndex));
+            batches.add(batch);
+
+            index = endIndex;
+        }
+
+        return batches;
+    }
+
+
     @Override
     public List<Stock> getStocks() {
-        if (stocks == null) {
+        if (stockBatches == null) {
             updateStocks();
         }
-        return this.stocks;
+        List<Stock> merged = new ArrayList<>();
+        for (List<Stock> batch : stockBatches) {
+            merged.addAll(batch);
+        }
+        return merged;
+    }
+
+    @Override
+    public List<List<Stock>> getStockBatches() {
+        if (stockBatches == null) {
+            updateStocks();
+        }
+        return stockBatches;
+    }
+    
+    @Override
+    public List<Stock> getStockByBatchNo(int batch)
+    {
+    	if (stockBatches == null) {
+            updateStocks();
+        }
+    	if(batch >= stockBatches.size())
+    	{
+    		throw new WebScrapperException("Invalid batch Number "+batch);
+    	}
+    	logger.info("Returning stock batch {} of size {}", batch, stockBatches.get(batch).size());
+    	return stockBatches.get(batch);
     }
 }

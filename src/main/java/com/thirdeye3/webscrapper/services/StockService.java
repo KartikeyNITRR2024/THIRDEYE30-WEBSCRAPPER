@@ -7,4 +7,6 @@ import com.thirdeye3.webscrapper.dtos.Stock;
 public interface StockService {
 	void updateStocks();
 	List<Stock> getStocks();
+	List<List<Stock>> getStockBatches();
+	List<Stock> getStockByBatchNo(int batch);
 }

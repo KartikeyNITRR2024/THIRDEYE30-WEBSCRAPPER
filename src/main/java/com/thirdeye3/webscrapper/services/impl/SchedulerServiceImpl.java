@@ -64,10 +64,9 @@ public class SchedulerServiceImpl implements SchedulerService {
     private Integer threadMaximumLifeCycle;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
-
+    
     @Override
-    @Scheduled(cron = "${webscrapper.scheduler.cronToWebScrap}", zone = "${webscrapper.timezone}")
-    public void runToWebscrap() {
+    public void runToWebscrap(int cycle) {
 
         if (!running.compareAndSet(false, true)) {
             logger.warn("Previous scheduler still running — skipping this cycle.");
@@ -79,7 +78,7 @@ public class SchedulerServiceImpl implements SchedulerService {
                 long start = System.currentTimeMillis();
                 logger.info("Scheduler started at {}", timeManager.getCurrentTime());
                 try {
-                    tempStockList = stockService.getStocks();
+                    tempStockList = stockService.getStockByBatchNo(cycle);
 
                     List<CompletableFuture<Void>> futures = new ArrayList<>();
                     for (Stock stock : tempStockList) {
@@ -103,11 +102,11 @@ public class SchedulerServiceImpl implements SchedulerService {
         finally {
             running.set(false);
         }
+        runToSendData(cycle);
     }
 
     @Override
-    @Scheduled(cron = "${webscrapper.scheduler.cronToSendData}", zone = "${webscrapper.timezone}")
-    public void runToSendData() {
+    public void runToSendData(int cycle) {
 
         try {
             if (tempStockList != null && !tempStockList.isEmpty()) {
@@ -128,6 +127,7 @@ public class SchedulerServiceImpl implements SchedulerService {
             logger.error("Failed to send data at {}: {}", timeManager.getCurrentTime(), e.getMessage());
         }
     }
+
 
     @Override
     @Scheduled(cron = "${webscrapper.scheduler.cronToRefreshData}", zone = "${webscrapper.timezone}")
