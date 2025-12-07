@@ -94,7 +94,7 @@ public class SchedulerServiceImpl implements SchedulerService {
                 long end = System.currentTimeMillis();
                 logger.info("Scheduler finished at {}. Total time = {} ms",
                         timeManager.getCurrentTime(), (end - start));
-
+                runToSendData();
             } else {
                 logger.info("Market is currently close");
             }
@@ -102,11 +102,10 @@ public class SchedulerServiceImpl implements SchedulerService {
         finally {
             running.set(false);
         }
-        runToSendData(cycle);
     }
 
     @Override
-    public void runToSendData(int cycle) {
+    public void runToSendData() {
 
         try {
             if (tempStockList != null && !tempStockList.isEmpty()) {
