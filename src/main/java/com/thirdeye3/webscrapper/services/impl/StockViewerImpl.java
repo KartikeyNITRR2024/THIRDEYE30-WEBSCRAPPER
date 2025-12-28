@@ -70,6 +70,7 @@ public class StockViewerImpl implements StockViewer {
 
         HttpHeaders headers = new HttpHeaders();
         headers.set("webscrapper-api-key", webscrapperApiKey);
+       headers.set("webscrapper-unique-id", uniqueId+uniqueCode);
 
         HttpEntity<WebscrapperRequest> entity = new HttpEntity<>(webscrapperRequest, headers);
 
